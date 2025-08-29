@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Posturize BLE Host</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, sans-serif; margin: 12px; }
+      .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+      .muted { color: #666; font-size: 12px; }
+      button { padding: 6px 10px; border-radius: 8px; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
+      button.secondary { background: #64748b; }
+      input { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; }
+      .ok { color: #16a34a; }
+      .err { color: #dc2626; }
+    </style>
+  </head>
+  <body>
+    <h3 style="margin:0 0 8px 0;">BLE Host</h3>
+    <div class="row">
+      <label class="muted">Service</label>
+      <input id="svc" placeholder="e.g. 0x1101" style="width: 160px;" />
+    </div>
+    <div class="row">
+      <button id="btnConnect">Connect</button>
+      <button id="btnDisconnect" class="secondary" disabled>Disconnect</button>
+    </div>
+    <div class="row muted">
+      <span id="status">Disconnected</span>
+    </div>
+    <div class="row muted">
+      <span id="device">—</span>
+    </div>
+    <script type="module" src="src/host.js"></script>
+  </body>
+</html>
+
+

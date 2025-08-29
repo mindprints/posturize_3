@@ -2,6 +2,13 @@ import { BleClient, hexToBytes, bytesToHex, normalizeUuid } from './ble.js';
 import { CHAR_PITCH, CHAR_CALIBRATE, CHAR_ALARM_THRESHOLD, CHAR_ALARM } from './ble.js';
 import { BATTERY_SERVICE, BATTERY_LEVEL_CHAR } from './ble.js';
 
+// Cross-tab BLE coordination: debug page should not fight for connection.
+const broadcastChannel = new BroadcastChannel('pg-ble');
+const thisTabId = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2));
+let isOwnerTab = false; // If user connects here, we become owner
+let isRemoteSession = false; // If IO tab owns connection, we mirror
+let remoteOwnerId = null;
+
 const ui = {
   support: document.getElementById('supportNotice'),
   namePrefix: document.getElementById('namePrefix'),
@@ -77,6 +84,57 @@ function setState({ deviceSelected, connected, charReady }) {
   ].forEach(id => { if (ui[id]) ui[id].disabled = !enableSvc; });
 }
 
+// Listen for owner announcements and data to mirror state
+broadcastChannel.onmessage = (ev) => {
+  const msg = ev?.data || {};
+  if (!msg || msg.from === thisTabId) return;
+  switch (msg.type) {
+    case 'who_is_owner': {
+      if (isOwnerTab) {
+        broadcastChannel.postMessage({
+          type: 'ble_connected',
+          from: thisTabId,
+          ownerId: thisTabId,
+          deviceId: ble?.device?.id || '',
+          deviceName: ble?.device?.name || '',
+          serviceUuid: (ui.serviceUuid?.value?.trim() || localStorage.getItem('pg.serviceUuid') || '')
+        });
+      }
+      break;
+    }
+    case 'ble_connected': {
+      if (isOwnerTab) return;
+      isRemoteSession = true;
+      remoteOwnerId = msg.ownerId || null;
+      setState({ deviceSelected: true, connected: true, charReady: false });
+      const name = msg.deviceName || '(shared device)';
+      log(`Mirroring connection from other tab: ${name}`, 'ok');
+      break;
+    }
+    case 'ble_disconnected': {
+      if (isOwnerTab) return;
+      isRemoteSession = false;
+      remoteOwnerId = null;
+      setState({ deviceSelected: true, connected: false, charReady: false });
+      log('Owner tab disconnected. You can connect from this tab now.', 'ok');
+      break;
+    }
+    case 'pitch': {
+      if (isOwnerTab) return;
+      const angleHex = msg.hex || '';
+      if (ui.pitchOut) ui.pitchOut.value = angleHex;
+      break;
+    }
+    case 'battery': {
+      if (isOwnerTab) return;
+      if (ui.batteryOut) ui.batteryOut.textContent = `Battery: ${Number(msg.level || 0)}%`;
+      break;
+    }
+    default:
+      break;
+  }
+};
+
 function requireInputs() {
   const serviceRaw = ui.serviceUuid.value.trim();
   const charRaw = ui.charUuid.value.trim();
@@ -90,6 +148,10 @@ function requireInputs() {
 
 ui.btnRequest.addEventListener('click', async () => {
   try {
+    if (isRemoteSession && !isOwnerTab) {
+      log('Connection is active in another tab. Disconnect there to take control.', 'err');
+      return;
+    }
     const namePrefix = ui.namePrefix.value.trim() || undefined;
     const serviceUuid = ui.serviceUuid.value.trim() || undefined;
     const device = await ble.requestDevice({ namePrefix, serviceUuid });
@@ -102,7 +164,25 @@ ui.btnRequest.addEventListener('click', async () => {
 
 ui.btnConnect.addEventListener('click', async () => {
   try {
+    if (isRemoteSession && !isOwnerTab) {
+      log('Connection is active in another tab. Disconnect there to take control.', 'err');
+      return;
+    }
     await ble.connect();
+    isOwnerTab = true;
+    isRemoteSession = false;
+    try {
+      localStorage.setItem('pg.deviceId', ble.device?.id || '');
+      localStorage.setItem('pg.deviceName', ble.device?.name || '');
+    } catch {}
+    broadcastChannel.postMessage({
+      type: 'ble_connected',
+      from: thisTabId,
+      ownerId: thisTabId,
+      deviceId: ble.device?.id || '',
+      deviceName: ble.device?.name || '',
+      serviceUuid: (ui.serviceUuid?.value?.trim() || localStorage.getItem('pg.serviceUuid') || '')
+    });
     const serviceRaw = ui.serviceUuid.value.trim();
     if (!serviceRaw) throw new Error('Service UUID is required');
     const serviceUuid = normalizeUuid(serviceRaw);
@@ -131,6 +211,8 @@ ui.btnDisconnect.addEventListener('click', async () => {
     stops.alarm?.(); stops.alarm = null;
     if (ui.batteryOut) ui.batteryOut.textContent = '';
     setState({ deviceSelected: true, connected: false, charReady: false });
+    isOwnerTab = false;
+    broadcastChannel.postMessage({ type: 'ble_disconnected', from: thisTabId, ownerId: thisTabId });
   } catch (err) {
     log(err.message || String(err), 'err');
   }
@@ -160,6 +242,10 @@ ui.btnWrite.addEventListener('click', async () => {
 
 ui.btnNotify.addEventListener('click', async () => {
   try {
+    if (isRemoteSession && !isOwnerTab) {
+      log('Notifications unavailable in mirror mode (another tab owns BLE).', 'err');
+      return;
+    }
     const { serviceUuid, charUuid } = requireInputs();
     stopNotify = await ble.startNotifications(serviceUuid, charUuid, (data) => {
       log(`Notify ${data.length} bytes: ${bytesToHex(data)}`, 'ok');
@@ -194,6 +280,10 @@ async function discoverCharacteristics() {
 
 ui.btnDiscover.addEventListener('click', async () => {
   try {
+    if (isRemoteSession && !isOwnerTab) {
+      log('Discovery unavailable in mirror mode (another tab owns BLE).', 'err');
+      return;
+    }
     await discoverCharacteristics();
   } catch (err) {
     log(err.message || String(err), 'err');
@@ -351,6 +441,11 @@ if (ui.btnPitchStop) ui.btnPitchStop.addEventListener('click', () => {
 // Calibrate (0x2102)
 if (ui.btnCalibrate) ui.btnCalibrate.addEventListener('click', async () => {
   try {
+    if (!isOwnerTab && isRemoteSession) {
+      broadcastChannel.postMessage({ type: 'cmd_calibrate', from: thisTabId });
+      log('Requested calibrate on owner tab', 'ok');
+      return;
+    }
     const svc = requireServiceOnly();
     const payload = new Uint8Array([0x01]); // write 0x01 to trigger calibrate
     await ble.write(svc, CHAR_CALIBRATE, payload);
@@ -370,6 +465,10 @@ if (ui.btnAlarmRead) ui.btnAlarmRead.addEventListener('click', async () => {
 });
 if (ui.btnAlarmNotify) ui.btnAlarmNotify.addEventListener('click', async () => {
   try {
+    if (isRemoteSession && !isOwnerTab) {
+      log('Notifications unavailable in mirror mode (another tab owns BLE).', 'err');
+      return;
+    }
     const svc = requireServiceOnly();
     stops.alarm = await ble.startNotifications(svc, CHAR_ALARM, (data) => {
       const hex = bytesToHex(data);
@@ -396,9 +495,16 @@ if (ui.btnAlarmThreshRead) ui.btnAlarmThreshRead.addEventListener('click', async
 });
 if (ui.btnAlarmThreshWrite) ui.btnAlarmThreshWrite.addEventListener('click', async () => {
   try {
-    const svc = requireServiceOnly();
     const hex = (ui.alarmThreshHex?.value || '').trim();
     const data = hexToBytes(hex);
+    if (!isOwnerTab && isRemoteSession) {
+      const first = data?.[0];
+      const value = Number(first);
+      broadcastChannel.postMessage({ type: 'cmd_set_threshold', value, from: thisTabId });
+      log('Requested threshold update on owner tab', 'ok');
+      return;
+    }
+    const svc = requireServiceOnly();
     await ble.write(svc, CHAR_ALARM_THRESHOLD, data);
     log(`Alarm threshold written (${data.length} bytes)`, 'ok');
   } catch (err) { log(err.message || String(err), 'err'); }
@@ -408,6 +514,10 @@ if (ui.btnAlarmThreshWrite) ui.btnAlarmThreshWrite.addEventListener('click', asy
 if (ui.btnReadBattery) {
   ui.btnReadBattery.addEventListener('click', async () => {
     try {
+      if (isRemoteSession && !isOwnerTab) {
+        log('Battery read unavailable in mirror mode (another tab owns BLE).', 'err');
+        return;
+      }
       const level = await ble.getBatteryLevel();
       const msg = `Battery: ${level}%`;
       if (ui.batteryOut) ui.batteryOut.textContent = msg;

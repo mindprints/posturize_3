@@ -11,6 +11,7 @@
       <h1>Web Bluetooth Tester (Debug)</h1>
       <p><a href="IO/posturize/index.html">Back to App</a></p>
       <p id="supportNotice"></p>
+      <p><button id="openHostBtn">Open BLE Host</button></p>
     </header>
 
     <main>
@@ -110,6 +111,15 @@
     </footer>
 
     <script type="module" src="src/app.js"></script>
+    <script>
+      const btn = document.getElementById('openHostBtn');
+      if (btn) btn.addEventListener('click', () => {
+        const w = 340, h = 220;
+        const left = window.screenX + Math.max(0, (window.outerWidth - w - 20));
+        const top = window.screenY + 80;
+        window.open('host.html', 'posturize-ble-host', `width=${w},height=${h},left=${left},top=${top},menubar=0,toolbar=0,location=0,status=0`);
+      });
+    </script>
   </body>
   </html>
 

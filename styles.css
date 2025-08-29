@@ -1,0 +1,53 @@
+:root{
+  --bg:#0f172a;/* slate-900 */
+  --panel:#111827;/* gray-900 */
+  --text:#e5e7eb;/* gray-200 */
+  --muted:#94a3b8;/* slate-400 */
+  --accent:#22c55e;/* green-500 */
+  --danger:#ef4444;/* red-500 */
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
+  background:var(--bg);color:var(--text);
+  display:flex;flex-direction:column;min-height:100vh
+}
+header,footer{padding:16px 20px}
+header h1{margin:0 0 8px 0;font-size:22px}
+header p{margin:0;color:var(--muted)}
+
+main{padding:0 20px 24px;display:grid;gap:16px;grid-template-columns:1fr}
+.panel{background:var(--panel);border:1px solid #1f2937;border-radius:10px;padding:16px}
+.panel h2{margin:0 0 12px 0;font-size:16px;color:#cbd5e1}
+
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+label{display:flex;flex-direction:column;gap:6px}
+label span{color:var(--muted);font-size:12px}
+input{background:#0b1220;color:var(--text);border:1px solid #1f2937;border-radius:8px;padding:10px}
+
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+button{
+  background:#0b1220;color:var(--text);border:1px solid #1f2937;border-radius:8px;padding:10px 12px;cursor:pointer
+}
+button:hover{border-color:#334155}
+button:disabled{opacity:.5;cursor:not-allowed}
+
+.log{
+  background:#0b1220;border:1px solid #1f2937;border-radius:8px;padding:12px;min-height:160px;max-height:320px;overflow:auto;
+  font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.4
+}
+.ok{color:var(--accent)}
+.err{color:var(--danger)}
+.muted{color:var(--muted)}
+
+footer{color:var(--muted)}
+
+.chars{display:flex;flex-direction:column;gap:8px}
+.chars .item{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;background:#0b1220;border:1px solid #1f2937;border-radius:8px;padding:10px;cursor:pointer}
+.chars .item:hover{border-color:#334155}
+.chars .uuid{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#cbd5e1}
+.chars .alias{color:var(--muted);margin-left:6px}
+.chars .props{display:flex;gap:6px;flex-wrap:wrap}
+.badge{border:1px solid #1f2937;border-radius:999px;padding:2px 8px;font-size:11px;color:#cbd5e1}

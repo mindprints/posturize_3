@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BLE Test SPA (Debug)</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Web Bluetooth Tester (Debug)</h1>
+      <p><a href="IO/posturize/index.html">Back to App</a></p>
+      <p id="supportNotice"></p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Device & Service</h2>
+        <div class="grid">
+          <label>
+            <span>Name prefix (optional)</span>
+            <input id="namePrefix" type="text" placeholder="e.g. MyDevice" />
+          </label>
+          <label>
+            <span>Service UUID</span>
+            <input id="serviceUuid" type="text" placeholder="e.g. 0000180f-0000-1000-8000-00805f9b34fb or 0x180F" />
+          </label>
+          <label>
+            <span>Characteristic UUID (optional)</span>
+            <input id="charUuid" type="text" placeholder="e.g. 0x2A19" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btnRequest">Request Device</button>
+          <button id="btnConnect" disabled>Connect</button>
+          <button id="btnDisconnect" disabled>Disconnect</button>
+          <button id="btnDiscover" disabled>Discover Characteristics</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Characteristic</h2>
+        <div class="grid">
+          <label>
+            <span>Write (hex bytes)</span>
+            <input id="writeHex" type="text" placeholder="e.g. 01 02 0A FF" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btnRead" disabled>Read</button>
+          <button id="btnWrite" disabled>Write</button>
+          <button id="btnNotify" disabled>Start Notifications</button>
+          <button id="btnStopNotify" disabled>Stop Notifications</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Device Controls</h2>
+        <div class="grid">
+          <label>
+            <span>Pitch (0x2101) value</span>
+            <input id="pitchOut" type="text" readonly placeholder="—" />
+          </label>
+          <label>
+            <span>Alarm (0x2104) value</span>
+            <input id="alarmOut" type="text" readonly placeholder="—" />
+          </label>
+          <label>
+            <span>Alarm threshold (0x2103) hex</span>
+            <input id="alarmThreshHex" type="text" placeholder="e.g. 14 00" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btnPitchRead" disabled>Read Pitch</button>
+          <button id="btnPitchNotify" disabled>Start Pitch Notify</button>
+          <button id="btnPitchStop" disabled>Stop Pitch Notify</button>
+
+          <button id="btnCalibrate" disabled>Calibrate (0x01)</button>
+
+          <button id="btnAlarmRead" disabled>Read Alarm</button>
+          <button id="btnAlarmNotify" disabled>Start Alarm Notify</button>
+          <button id="btnAlarmStop" disabled>Stop Alarm Notify</button>
+
+          <button id="btnAlarmThreshRead" disabled>Read Threshold</button>
+          <button id="btnAlarmThreshWrite" disabled>Write Threshold</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Battery</h2>
+        <div class="actions">
+          <button id="btnReadBattery" disabled>Read Battery Level</button>
+          <span id="batteryOut" class="muted"></span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Discovered Characteristics</h2>
+        <div id="charsList" class="chars"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Log</h2>
+        <pre id="log" class="log" aria-live="polite"></pre>
+      </section>
+    </main>
+
+    <footer>
+      <small>Requires a supported Chromium-based browser over HTTPS or localhost.</small>
+    </footer>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+  </html>
+

@@ -1,6 +1,7 @@
 // Minimal BLE helper wrapping Web Bluetooth API
 export const BATTERY_SERVICE = 0x180F;
 export const BATTERY_LEVEL_CHAR = 0x2A19;
+export const DEVICE_INFORMATION_SERVICE = 0x180A;
 // App-specific characteristic aliases
 export const CHAR_PITCH = 0x2101; // read + notify
 export const CHAR_CALIBRATE = 0x2102; // write (set calibrate)
@@ -13,6 +14,10 @@ export class BleClient {
     this.server = null;
     this.cache = new Map();
     this.log = log || (() => {});
+    this.opQueue = Promise.resolve();
+    this.autoReconnect = true;
+    this._reconnectDelaysMs = [500, 1000, 2000];
+    this._boundOnDisconnected = (/*ev*/) => this._handleDisconnected();
   }
 
   static get supported() {
@@ -21,17 +26,13 @@ export class BleClient {
 
   async requestDevice({ namePrefix, serviceUuid }) {
     if (!BleClient.supported) throw new Error("Web Bluetooth not supported in this browser");
-    const filters = [];
-    if (namePrefix) filters.push({ namePrefix });
-    if (serviceUuid) filters.push({ services: [normalizeUuid(serviceUuid)] });
-    const optionalServices = [];
-    if (serviceUuid) optionalServices.push(normalizeUuid(serviceUuid));
-    // Always include Battery Service so quick battery reads are allowed
-    optionalServices.push(BATTERY_SERVICE);
-    const options = filters.length
-      ? { filters, optionalServices }
-      : { acceptAllDevices: true, optionalServices };
-    this.log(`Requesting device with options: ${JSON.stringify(options)}`);
+    if (!serviceUuid) throw new Error('Service UUID is required for device selection');
+    const primaryService = normalizeUuid(serviceUuid);
+    const filter = { services: [primaryService] };
+    if (namePrefix) filter.namePrefix = namePrefix;
+    const optionalServices = [primaryService, BATTERY_SERVICE, DEVICE_INFORMATION_SERVICE];
+    const options = { filters: [filter], optionalServices };
+    this.log(`Requesting device with options: ${JSON.stringify({ filters: [{ services: ['<primary>'] , ...(namePrefix?{namePrefix}:{} )}], optionalServices })}`);
     this.device = await navigator.bluetooth.requestDevice(options);
     this.device.addEventListener('gattserverdisconnected', () => {
       this.log('Device disconnected');
@@ -42,6 +43,9 @@ export class BleClient {
 
   async connect() {
     if (!this.device) throw new Error('No device selected');
+    // Ensure only one listener attached
+    try { this.device.removeEventListener('gattserverdisconnected', this._boundOnDisconnected); } catch {}
+    this.device.addEventListener('gattserverdisconnected', this._boundOnDisconnected);
     this.server = await this.device.gatt.connect();
     this.log(`Connected: ${this.device.name || '(no name)'} (${this.device.id})`);
     this.cache.clear();
@@ -56,8 +60,55 @@ export class BleClient {
     this.server = null;
   }
 
+  enqueue(fn) {
+    this.opQueue = this.opQueue.then(() => fn()).catch((e) => {
+      this.log(`[queue] ${e?.message || e}`);
+      throw e;
+    });
+    return this.opQueue;
+  }
+
+  async ensureConnected() {
+    if (this.server && this.device?.gatt?.connected) return;
+    if (!this.device) throw new Error('Not connected');
+    if (!this.autoReconnect) throw new Error('GATT server not connected');
+    await this._attemptReconnect();
+  }
+
+  async _handleDisconnected() {
+    this.log('Device disconnected');
+    this.server = null;
+    try { this.onDisconnected?.(this.device); } catch {}
+    if (this.autoReconnect) {
+      try {
+        await this._attemptReconnect();
+        try { this.onReconnected?.(this.server); } catch {}
+      } catch (e) {
+        this.log(`Auto-reconnect failed: ${e?.message || e}`);
+      }
+    }
+  }
+
+  async _attemptReconnect() {
+    if (!this.device) throw new Error('No device to reconnect');
+    for (const delay of this._reconnectDelaysMs) {
+      try {
+        this.log('Reconnecting…');
+        this.server = await this.device.gatt.connect();
+        this.cache.clear();
+        this.log('Reconnected');
+        return;
+      } catch (e) {
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    // Last attempt
+    this.server = await this.device.gatt.connect();
+    this.cache.clear();
+  }
+
   async getCharacteristic(serviceUuid, charUuid) {
-    if (!this.server) throw new Error('Not connected');
+    await this.ensureConnected();
     const key = `${normalizeUuid(serviceUuid)}::${normalizeUuid(charUuid)}`;
     if (this.cache.has(key)) return this.cache.get(key);
     const service = await this.server.getPrimaryService(normalizeUuid(serviceUuid));
@@ -67,47 +118,57 @@ export class BleClient {
   }
 
   async read(serviceUuid, charUuid) {
-    const ch = await this.getCharacteristic(serviceUuid, charUuid);
-    const value = await ch.readValue();
-    return new Uint8Array(value.buffer);
+    return this.enqueue(async () => {
+      const ch = await this.getCharacteristic(serviceUuid, charUuid);
+      const value = await ch.readValue();
+      return new Uint8Array(value.buffer);
+    });
   }
 
   async write(serviceUuid, charUuid, data) {
-    const ch = await this.getCharacteristic(serviceUuid, charUuid);
-    await ch.writeValue(data);
+    return this.enqueue(async () => {
+      const ch = await this.getCharacteristic(serviceUuid, charUuid);
+      await ch.writeValue(data);
+    });
   }
 
   async startNotifications(serviceUuid, charUuid, callback) {
-    const ch = await this.getCharacteristic(serviceUuid, charUuid);
-    await ch.startNotifications();
-    const handler = (ev) => {
-      const v = new Uint8Array(ev.target.value.buffer);
-      callback?.(v);
-    };
-    ch.addEventListener('characteristicvaluechanged', handler);
-    return () => ch.removeEventListener('characteristicvaluechanged', handler);
+    return this.enqueue(async () => {
+      const ch = await this.getCharacteristic(serviceUuid, charUuid);
+      await ch.startNotifications();
+      const handler = (ev) => {
+        const v = new Uint8Array(ev.target.value.buffer);
+        callback?.(v);
+      };
+      ch.addEventListener('characteristicvaluechanged', handler);
+      return () => ch.removeEventListener('characteristicvaluechanged', handler);
+    });
   }
  
   async getBatteryLevel() {
-    if (!this.server) throw new Error('Not connected');
-    const service = await this.server.getPrimaryService(BATTERY_SERVICE);
-    const ch = await service.getCharacteristic(BATTERY_LEVEL_CHAR);
-    const v = await ch.readValue();
-    return v.getUint8(0);
+    return this.enqueue(async () => {
+      await this.ensureConnected();
+      const service = await this.server.getPrimaryService(BATTERY_SERVICE);
+      const ch = await service.getCharacteristic(BATTERY_LEVEL_CHAR);
+      const v = await ch.readValue();
+      return v.getUint8(0);
+    });
   }
 
   async listCharacteristics(serviceUuid) {
-    if (!this.server) throw new Error('Not connected');
-    const service = await this.server.getPrimaryService(normalizeUuid(serviceUuid));
-    const chars = await service.getCharacteristics();
-    return chars.map((c) => {
-      const props = c.properties || {};
-      const supported = Object.keys(props).filter((k) => props[k]);
-      return {
-        uuid: c.uuid,
-        alias: shortUuid(c.uuid),
-        properties: supported,
-      };
+    return this.enqueue(async () => {
+      await this.ensureConnected();
+      const service = await this.server.getPrimaryService(normalizeUuid(serviceUuid));
+      const chars = await service.getCharacteristics();
+      return chars.map((c) => {
+        const props = c.properties || {};
+        const supported = Object.keys(props).filter((k) => props[k]);
+        return {
+          uuid: c.uuid,
+          alias: shortUuid(c.uuid),
+          properties: supported,
+        };
+      });
     });
   }
 }

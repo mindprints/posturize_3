@@ -4,6 +4,7 @@ This repo contains two UIs:
 
 - Main App (IO): A polished PostureGuard UI under `IO/posturize/index.html` that connects to your BLE device.
 - Debug Page: A minimal Web Bluetooth tester at `debug.html` for exploring services/characteristics and logging.
+- BLE Host (`host.html`): a tiny optional popup that can own the Web Bluetooth connection and forward notifications to the main app via `BroadcastChannel`. Keep it if you need to isolate the BLE session in a separate window; otherwise you can ignore it.
 
 ## Quick start
 
@@ -15,6 +16,11 @@ This repo contains two UIs:
 3. In the IO app, enter your device’s Service UUID (e.g., `0x1101`) and optional Name Prefix, then Connect.
 4. Use the controls for calibrate, threshold, and real-time angle/alarms.
 5. For deep inspection, open the Debug page via the “Open Debug” link or at `/debug.html`.
+
+Reconnect and permissions
+
+- The app preflights Web Bluetooth support and adapter availability on load and shows inline messages.
+- If you have previously granted device access, known devices are listed with quick “Reconnect” buttons using `navigator.bluetooth.getDevices()`.
 
 > Note: Opening `index.html` via `file://` will not work. Use `http://localhost` (or HTTPS).
 
